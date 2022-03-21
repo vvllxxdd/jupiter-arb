@@ -4,7 +4,7 @@ This is not 100% risk-free as transactions may fail but it's a proof of concept 
 
 Feel free to replace SOL with other assets, it is advisable to open token accounts in advance.
 
-It earns less than 1 cent because it uses 0.00000002 SOL but that is insignificant.
+Profitability can be adjusted based on a PROFITABILITY_THRESHOLD, but it's best to account for platform and lp provider fees.
 
 ## How to use?
 
@@ -22,7 +22,7 @@ npm install
 npm start
 ```
 
-Can run it in Docker:
+4. Can run it in Docker:
 
 ```sh
  docker build -t jupiter-arb .
