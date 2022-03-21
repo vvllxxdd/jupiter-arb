@@ -16,6 +16,10 @@ import {
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 
+import { argv } from "process";
+
+const [_0, _1, arg2, arg3, arg4, arg5] = argv;
+
 dotenv.config();
 
 const ASSETS = {
@@ -23,24 +27,32 @@ const ASSETS = {
   USDT: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
   UST: "9vMJfxuKxXBoEa7rM12mYLMwTacLMLDJqHozw96WQL8i",
   WSOL: "So11111111111111111111111111111111111111112",
+  MSOL: "mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So",
+  STSOL: "7dHbWXmci3dT8UFYWYZweBLXgycu7Y3iL6trKn1Y7ARj",
   ETH: "7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs",
-  soETH: "2FPyTwcZLUg1MDrwsyoP4D6s1tM7hAkHYRjkNb5w6Pxk",
+  SOETH: "2FPyTwcZLUg1MDrwsyoP4D6s1tM7hAkHYRjkNb5w6Pxk",
   BTC: "9n4nbM75f5Ui33ZbPYXn59EwSgE8CGsHtAeTH5YFeJ9E",
+  RAY: "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R",
 };
 
-const PROFITABILITY_THRESHOLD = 1.00166;
-const DECIMAL_CUTTER = 1000000;
+const ASSET_MINT = ASSETS[arg2] || ASSETS.WSOL;
 
-const ASSET_MINT = process.argv[2] || ASSETS.WSOL;
-const QUOTE_MINT = process.argv[3] || ASSETS.USDC;
+const QUOTE_MINT = ASSETS[arg3] || ASSETS.USDC;
 
-const connection = new Connection(
-  "https://twilight-misty-snow.solana-mainnet.quiknode.pro/1080f1a8952de8e09d402f2ce877698f832faea8/"
-);
+const PRIVATE_KEY = arg4 || process.env.PRIVATE_KEY;
 
-const wallet = new Wallet(
-  Keypair.fromSecretKey(bs58.decode(process.env.PRIVATE_KEY || ""))
-);
+const ENDPOINT =
+  arg5 ||
+  process.env.ENDPOINT ||
+  "https://twilight-misty-snow.solana-mainnet.quiknode.pro/1080f1a8952de8e09d402f2ce877698f832faea8/";
+
+const PROFITABILITY_THRESHOLD = 1.00115;
+
+const DECIMAL_CUTTER = 10 ** 6;
+
+const connection = new Connection(ENDPOINT);
+
+const wallet = new Wallet(Keypair.fromSecretKey(bs58.decode(PRIVATE_KEY)));
 
 const quoteAddress = await Token.getAssociatedTokenAddress(
   ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -108,7 +120,7 @@ const createAssetAccount = async () => {
 const getCoinQuote = (inputMint, outputMint, amount) =>
   got
     .get(
-      `https://quote-api.jup.ag/v1/quote?outputMint=${outputMint}&inputMint=${inputMint}&amount=${amount}&slippage=0.15`
+      `https://quote-api.jup.ag/v1/quote?outputMint=${outputMint}&inputMint=${inputMint}&amount=${amount}&slippage=0.2`
     )
     .json();
 
@@ -166,29 +178,31 @@ while (true) {
   const tokenAccountBalance = await connection.getTokenAccountBalance(
     new PublicKey(quoteAddress)
   );
+  // const initial = 100_000_000;
   const initial = tokenAccountBalance.value.amount;
 
-  const outRoute = await getCoinQuote(QUOTE_MINT, ASSET_MINT, initial).then(
+  const buyRoute = await getCoinQuote(QUOTE_MINT, ASSET_MINT, initial).then(
     (res) => res.data[0]
   );
 
-  const inRoute = await getCoinQuote(
+  const sellRoute = await getCoinQuote(
     ASSET_MINT,
     QUOTE_MINT,
-    outRoute.outAmountWithSlippage
+    buyRoute.outAmountWithSlippage
   ).then((res) => res.data[0]);
 
   const isProfitable =
-    inRoute.outAmountWithSlippage > outRoute.inAmount * PROFITABILITY_THRESHOLD;
+    sellRoute.outAmountWithSlippage >
+    buyRoute.inAmount * PROFITABILITY_THRESHOLD;
 
   console.log(
     `
-    Current price is ${outRoute.inAmount / outRoute.outAmountWithSlippage}.
-    Swap rate is $${outRoute.inAmount / DECIMAL_CUTTER} for $${
-      inRoute.outAmountWithSlippage / DECIMAL_CUTTER
+    Asset: ${arg2}
+    Swap rate is $${buyRoute.inAmount / DECIMAL_CUTTER} for $${
+      sellRoute.outAmountWithSlippage / DECIMAL_CUTTER
     }.
     Min. profitable: $${
-      (outRoute.inAmount / DECIMAL_CUTTER) * PROFITABILITY_THRESHOLD
+      (buyRoute.inAmount / DECIMAL_CUTTER) * PROFITABILITY_THRESHOLD
     }.
     ${isProfitable ? "Profitable" : "Not profitable"}
     <--------------------------------------------------->
@@ -198,7 +212,7 @@ while (true) {
   // when outAmount more than initial
   if (isProfitable) {
     await Promise.all(
-      [outRoute, inRoute].map(async (route) => {
+      [buyRoute, sellRoute].map(async (route) => {
         const { setupTransaction, swapTransaction, cleanupTransaction } =
           await getTransaction(route);
 
