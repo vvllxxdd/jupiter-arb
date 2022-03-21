@@ -16,29 +16,51 @@ import {
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 
-console.log({ dotenv });
 dotenv.config();
 
-const connection = new Connection("https://mercurial.rpcpool.com");
+const ASSETS = {
+  USDC: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+  USDT: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+  UST: "9vMJfxuKxXBoEa7rM12mYLMwTacLMLDJqHozw96WQL8i",
+  WSOL: "So11111111111111111111111111111111111111112",
+  ETH: "7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs",
+  soETH: "2FPyTwcZLUg1MDrwsyoP4D6s1tM7hAkHYRjkNb5w6Pxk",
+  BTC: "9n4nbM75f5Ui33ZbPYXn59EwSgE8CGsHtAeTH5YFeJ9E",
+};
+
+const PROFITABILITY_THRESHOLD = 1.00166;
+const DECIMAL_CUTTER = 1000000;
+
+const ASSET_MINT = process.argv[2] || ASSETS.WSOL;
+const QUOTE_MINT = process.argv[3] || ASSETS.USDC;
+
+const connection = new Connection(
+  "https://twilight-misty-snow.solana-mainnet.quiknode.pro/1080f1a8952de8e09d402f2ce877698f832faea8/"
+);
+
 const wallet = new Wallet(
   Keypair.fromSecretKey(bs58.decode(process.env.PRIVATE_KEY || ""))
 );
 
-const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
-const SOL_MINT = "So11111111111111111111111111111111111111112";
+const quoteAddress = await Token.getAssociatedTokenAddress(
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+  TOKEN_PROGRAM_ID,
+  new PublicKey(QUOTE_MINT),
+  wallet.publicKey
+);
 
 // wsol account
-const createWSolAccount = async () => {
+const createAssetAccount = async () => {
   const wsolAddress = await Token.getAssociatedTokenAddress(
     ASSOCIATED_TOKEN_PROGRAM_ID,
     TOKEN_PROGRAM_ID,
-    new PublicKey(SOL_MINT),
+    new PublicKey(ASSET_MINT),
     wallet.publicKey
   );
 
-  const wsolAccount = await connection.getAccountInfo(wsolAddress);
+  const assetAccount = await connection.getAccountInfo(wsolAddress);
 
-  if (!wsolAccount) {
+  if (!assetAccount) {
     const transaction = new Transaction({
       feePayer: wallet.publicKey,
     });
@@ -48,21 +70,21 @@ const createWSolAccount = async () => {
       await Token.createAssociatedTokenAccountInstruction(
         ASSOCIATED_TOKEN_PROGRAM_ID,
         TOKEN_PROGRAM_ID,
-        new PublicKey(SOL_MINT),
+        new PublicKey(ASSET_MINT),
         wsolAddress,
         wallet.publicKey,
         wallet.publicKey
       )
     );
 
-    // fund 1 sol to the account
-    instructions.push(
-      SystemProgram.transfer({
-        fromPubkey: wallet.publicKey,
-        toPubkey: wsolAddress,
-        lamports: 1_000_000_000, // 1 sol
-      })
-    );
+    // // fund 1 sol to the account
+    // instructions.push(
+    //   SystemProgram.transfer({
+    //     fromPubkey: wallet.publicKey,
+    //     toPubkey: wsolAddress,
+    //     lamports: 1_000_000_000, // 1 sol
+    //   })
+    // );
 
     instructions.push(
       // This is not exposed by the types, but indeed it exists
@@ -80,13 +102,13 @@ const createWSolAccount = async () => {
     console.log({ result });
   }
 
-  return wsolAccount;
+  return assetAccount;
 };
 
 const getCoinQuote = (inputMint, outputMint, amount) =>
   got
     .get(
-      `https://quote-api.jup.ag/v1/quote?outputMint=${outputMint}&inputMint=${inputMint}&amount=${amount}&slippage=0.2`
+      `https://quote-api.jup.ag/v1/quote?outputMint=${outputMint}&inputMint=${inputMint}&amount=${amount}&slippage=0.15`
     )
     .json();
 
@@ -121,8 +143,8 @@ const getConfirmTransaction = async (txid) => {
     },
     {
       retries: 40,
-      minTimeout: 500,
-      maxTimeout: 1000,
+      minTimeout: 400,
+      maxTimeout: 1100,
     }
   );
   if (res.meta.err) {
@@ -132,25 +154,51 @@ const getConfirmTransaction = async (txid) => {
 };
 
 // require wsol to start trading, this function create your wsol account and fund 1 SOL to it
-await createWSolAccount();
+await createAssetAccount();
 
-// initial 20 USDC for quote
-const initial = 20_000_000;
+// initial 250 USDC for quote
+// const initial = 250_000_000;
+
+// Get quote token payer account address. e.g. usdc address for payer account
 
 while (true) {
-  // 0.1 SOL
-  const usdcToSol = await getCoinQuote(USDC_MINT, SOL_MINT, initial);
+  // Account Token Account Info
+  const tokenAccountBalance = await connection.getTokenAccountBalance(
+    new PublicKey(quoteAddress)
+  );
+  const initial = tokenAccountBalance.value.amount;
 
-  const solToUsdc = await getCoinQuote(
-    SOL_MINT,
-    USDC_MINT,
-    usdcToSol.data[0].outAmount
+  const outRoute = await getCoinQuote(QUOTE_MINT, ASSET_MINT, initial).then(
+    (res) => res.data[0]
+  );
+
+  const inRoute = await getCoinQuote(
+    ASSET_MINT,
+    QUOTE_MINT,
+    outRoute.outAmountWithSlippage
+  ).then((res) => res.data[0]);
+
+  const isProfitable =
+    inRoute.outAmountWithSlippage > outRoute.inAmount * PROFITABILITY_THRESHOLD;
+
+  console.log(
+    `
+    Current price is ${outRoute.inAmount / outRoute.outAmountWithSlippage}.
+    Swap rate is $${outRoute.inAmount / DECIMAL_CUTTER} for $${
+      inRoute.outAmountWithSlippage / DECIMAL_CUTTER
+    }.
+    Min. profitable: $${
+      (outRoute.inAmount / DECIMAL_CUTTER) * PROFITABILITY_THRESHOLD
+    }.
+    ${isProfitable ? "Profitable" : "Not profitable"}
+    <--------------------------------------------------->
+  `
   );
 
   // when outAmount more than initial
-  if (solToUsdc.data[0].outAmount > initial) {
+  if (isProfitable) {
     await Promise.all(
-      [usdcToSol.data[0], solToUsdc.data[0]].map(async (route) => {
+      [outRoute, inRoute].map(async (route) => {
         const { setupTransaction, swapTransaction, cleanupTransaction } =
           await getTransaction(route);
 
@@ -169,6 +217,7 @@ while (true) {
                 [wallet.payer],
                 {
                   skipPreflight: true,
+                  maxRetries: 5,
                 }
               );
               try {
