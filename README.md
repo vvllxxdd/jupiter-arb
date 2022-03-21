@@ -2,12 +2,7 @@
 
 This is not 100% risk-free as transactions may fail but it's a proof of concept to use Jupiter API to do arbitrage on Solana.
 
-This code shows:
-
-- It checks for USDC => SOL, then SOL => USDC, if the output amount in USDC is more than the input amount in USDC, then it will trade.
-- It will send a minimum of 2 transactions and it may fail but it's fine since the transaction fee is cheap on Solana.
-
-Feel free to replace Sol with other assets, it is advisable to open token accounts in advance.
+Feel free to replace SOL with other assets, it is advisable to open token accounts in advance.
 
 It earns less than 1 cent because it uses 0.00000002 SOL but that is insignificant.
 
@@ -25,4 +20,10 @@ npm install
 
 ```sh
 npm start
+```
+
+Can run it in Docker:
+
+```sh
+ docker build -t jupiter-arb .
 ```
