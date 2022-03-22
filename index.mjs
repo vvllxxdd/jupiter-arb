@@ -18,7 +18,7 @@ import {
 
 import { argv } from "process";
 
-const [_0, _1, arg2, arg3, arg4, arg5] = argv;
+const [_0, _1, arg2, arg3] = argv;
 
 dotenv.config();
 
@@ -33,20 +33,20 @@ const ASSETS = {
   SOETH: "2FPyTwcZLUg1MDrwsyoP4D6s1tM7hAkHYRjkNb5w6Pxk",
   BTC: "9n4nbM75f5Ui33ZbPYXn59EwSgE8CGsHtAeTH5YFeJ9E",
   RAY: "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R",
+  SAMO: "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU",
 };
 
-const ASSET_MINT = ASSETS[arg2] || ASSETS.WSOL;
+const ASSET_MINT = ASSETS[arg2] || ASSETS.BTC;
 
 const QUOTE_MINT = ASSETS[arg3] || ASSETS.USDC;
 
-const PRIVATE_KEY = arg4 || process.env.PRIVATE_KEY;
+const PRIVATE_KEY = process.env.PRIVATE_KEY;
 
 const ENDPOINT =
-  arg5 ||
   process.env.ENDPOINT ||
   "https://twilight-misty-snow.solana-mainnet.quiknode.pro/1080f1a8952de8e09d402f2ce877698f832faea8/";
 
-const PROFITABILITY_THRESHOLD = 1.00115;
+const PROFITABILITY_THRESHOLD = 1.0023;
 
 const DECIMAL_CUTTER = 10 ** 6;
 
@@ -63,14 +63,14 @@ const quoteAddress = await Token.getAssociatedTokenAddress(
 
 // wsol account
 const createAssetAccount = async () => {
-  const wsolAddress = await Token.getAssociatedTokenAddress(
+  const assetAddress = await Token.getAssociatedTokenAddress(
     ASSOCIATED_TOKEN_PROGRAM_ID,
     TOKEN_PROGRAM_ID,
     new PublicKey(ASSET_MINT),
     wallet.publicKey
   );
 
-  const assetAccount = await connection.getAccountInfo(wsolAddress);
+  const assetAccount = await connection.getAccountInfo(assetAddress);
 
   if (!assetAccount) {
     const transaction = new Transaction({
@@ -79,11 +79,11 @@ const createAssetAccount = async () => {
     const instructions = [];
 
     instructions.push(
-      await Token.createAssociatedTokenAccountInstruction(
+      Token.createAssociatedTokenAccountInstruction(
         ASSOCIATED_TOKEN_PROGRAM_ID,
         TOKEN_PROGRAM_ID,
         new PublicKey(ASSET_MINT),
-        wsolAddress,
+        assetAddress,
         wallet.publicKey,
         wallet.publicKey
       )
@@ -93,14 +93,14 @@ const createAssetAccount = async () => {
     // instructions.push(
     //   SystemProgram.transfer({
     //     fromPubkey: wallet.publicKey,
-    //     toPubkey: wsolAddress,
+    //     toPubkey: assetAddress,
     //     lamports: 1_000_000_000, // 1 sol
     //   })
     // );
 
     instructions.push(
       // This is not exposed by the types, but indeed it exists
-      Token.createSyncNativeInstruction(TOKEN_PROGRAM_ID, wsolAddress)
+      Token.createSyncNativeInstruction(TOKEN_PROGRAM_ID, assetAddress)
     );
 
     transaction.add(...instructions);
@@ -131,7 +131,7 @@ const getTransaction = (route) => {
         route: route,
         userPublicKey: wallet.publicKey.toString(),
         // to make sure it doesnt close the sol account
-        wrapUnwrapSOL: false,
+        // wrapUnwrapSOL: false,
       },
     })
     .json();
@@ -145,7 +145,9 @@ const getConfirmTransaction = async (txid) => {
       });
 
       if (!txResult) {
-        const error = new Error("Transaction was not confirmed");
+        const error = new Error(
+          `Transaction was not confirmed in ${attempt} attempts`
+        );
         error.txid = txid;
 
         retry(error);
@@ -154,9 +156,9 @@ const getConfirmTransaction = async (txid) => {
       return txResult;
     },
     {
-      retries: 40,
-      minTimeout: 400,
-      maxTimeout: 1100,
+      retries: 5,
+      minTimeout: 500,
+      maxTimeout: 1000,
     }
   );
   if (res.meta.err) {
@@ -165,21 +167,15 @@ const getConfirmTransaction = async (txid) => {
   return txid;
 };
 
-// require wsol to start trading, this function create your wsol account and fund 1 SOL to it
 await createAssetAccount();
-
-// initial 250 USDC for quote
-// const initial = 250_000_000;
-
-// Get quote token payer account address. e.g. usdc address for payer account
 
 while (true) {
   // Account Token Account Info
   const tokenAccountBalance = await connection.getTokenAccountBalance(
     new PublicKey(quoteAddress)
   );
-  // const initial = 100_000_000;
-  const initial = tokenAccountBalance.value.amount;
+  // const initial = tokenAccountBalance.value.amount;
+  const initial = 20_000_000;
 
   const buyRoute = await getCoinQuote(QUOTE_MINT, ASSET_MINT, initial).then(
     (res) => res.data[0]
@@ -212,7 +208,7 @@ while (true) {
   // when outAmount more than initial
   if (isProfitable) {
     await Promise.all(
-      [buyRoute, sellRoute].map(async (route) => {
+      [buyRoute, sellRoute].forEach(async (route) => {
         const { setupTransaction, swapTransaction, cleanupTransaction } =
           await getTransaction(route);
 
@@ -238,7 +234,13 @@ while (true) {
                 await getConfirmTransaction(txid);
                 console.log(`Success: https://solscan.io/tx/${txid}`);
               } catch (e) {
-                console.log(`Failed: https://solscan.io/tx/${txid}`);
+                console.log(
+                  `Failed: https://solscan.io/tx/${txid}. Retrying...`
+                );
+                await connection.sendTransaction(transaction, [wallet.payer], {
+                  skipPreflight: true,
+                  maxRetries: 2,
+                });
               }
             })
         );
