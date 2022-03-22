@@ -36,15 +36,13 @@ const ASSETS = {
   SAMO: "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU",
 };
 
+const PRIVATE_KEY = process.env.PRIVATE_KEY;
+
+const ENDPOINT = process.env.ENDPOINT;
+
 const ASSET_MINT = ASSETS[arg2] || ASSETS.BTC;
 
 const QUOTE_MINT = ASSETS[arg3] || ASSETS.USDC;
-
-const PRIVATE_KEY = process.env.PRIVATE_KEY;
-
-const ENDPOINT =
-  process.env.ENDPOINT ||
-  "https://twilight-misty-snow.solana-mainnet.quiknode.pro/1080f1a8952de8e09d402f2ce877698f832faea8/";
 
 const PROFITABILITY_THRESHOLD = 1.0023;
 

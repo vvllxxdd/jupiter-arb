@@ -14,7 +14,7 @@ Profitability can be adjusted based on a PROFITABILITY_THRESHOLD, but it's best 
 npm install
 ```
 
-2.  Just create a `.env` file with your PRIVATE_KEY
+2.  Create a `.env` file with your PRIVATE_KEY and ENDPOINT
 
 3.  run the file
 
@@ -22,7 +22,13 @@ npm install
 npm start
 ```
 
-4. Can run it in Docker:
+4. Alternatively, you can run it by naming the assets to arb from the CLI
+
+```sh
+npm start BTC USDC
+```
+
+5. Can run it in Docker:
 
 ```sh
  docker build -t jupiter-arb .
